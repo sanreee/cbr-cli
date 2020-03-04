@@ -50,6 +50,7 @@ parser.add_argument("-et", help="endtime", default=0, dest='tmpendtime')
 parser.add_argument("-n", help="list process netconns", action='store_true')
 parser.add_argument("-i", help="interactive mode", action='store_true')
 parser.add_argument("-a", help="sweep mode", action='store_true')
+parser.add_argument("-c", help="list child processes, default n=1", default=0)
 parser.add_argument("-m", help='''R|without the switch you enter CBR cli
 supported modes:
       ps      = search powershell processes
@@ -100,6 +101,16 @@ sweepMode = False
 if args.a is True:
   sweepMode ^= True 
 
+def visitor(proc, depth):
+    try:
+        start_time = proc.start or "<unknown>"
+        end_time = proc.end or "<unknown>"
+
+        print("\033[1;30;40m\033[32m{0}\033{1}: {2} {3}\033[m".format('  -> '*(depth + 1), start_time, proc.cmdline,
+                                     "(suppressed)" if proc.suppressed_process else ""))
+    except Exception as e:
+        print("** Encountered error while walking children: {0:s}".format(str(e)))
+
 def doTheNeedful(q, sweepMode):
   if sweepMode == True:
     #load instances
@@ -108,15 +119,22 @@ def doTheNeedful(q, sweepMode):
     for jee in instances:
       print(jee)
       cb = CbResponseAPI(profile=jee.strip())
-      query = cb.select(Process).where('hostname:' + args.hostname +' AND '+q+' AND start:['+ starttime +  ' TO ' + endtime + ']').sort("start asc")
+      query = cb.select(Process).where('hostname:' + args.hostname +' AND '+q+' AND start:['+ starttime +  ' TO ' + endtime + ']').sort("start asc").max_children(args.c)
       for proc in query:
         print("{0} {1} {2}\n\033[1;30;40m{3}\033[m".format(proc.start, proc.hostname, proc.cmdline, proc.webui_link))
+        # Show netconns switch
         if args.n is True:
+          # Iterate the CB netconns object
           for conns in proc.netconns:
             print("\033[32m{0}\033[m".format(conns))
+        # Show child processes switch
+        elif int(args.c) > 0:
+          # Iterate the child processes
+          proc.walk_children(visitor)
+ 
   else:
     cb = CbResponseAPI(profile=args.instance)
-    query = cb.select(Process).where('hostname:' + args.hostname +' AND '+q+' AND start:['+ starttime +  ' TO ' + endtime + ']').sort("start asc")
+    query = cb.select(Process).where('hostname:' + args.hostname +' AND '+q+' AND start:['+ starttime +  ' TO ' + endtime + ']').sort("start asc").max_children(args.c)
     for proc in query:
       print("{0} {1} {2}\n\033[1;30;40m{3}\033[m".format(proc.start, proc.hostname, proc.cmdline, proc.webui_link))
       # Show netconns switch
@@ -124,6 +142,12 @@ def doTheNeedful(q, sweepMode):
         # Iterate the CB netconns object
         for conns in proc.netconns:
           print("\033[32m{0}\033[m".format(conns))
+        continue
+      # Show child processes switch
+      elif int(args.c) > 0:
+        # Iterate the child processes
+        proc.walk_children(visitor)
+ 
   input(colorize('Press enter to continue.', 'blue'))
   clearPrompt()
   mainMenu()
@@ -175,6 +199,7 @@ def initMenu(b, sweepMode, asd=asd):
       asd = b
     elif type(b) == dict: mainMenu()
     else:
+      asd = asd
       clearPrompt()
       printBanner()
       print(colorize('All instances mode: '+str(sweepMode),'blue'))
@@ -186,6 +211,12 @@ def initMenu(b, sweepMode, asd=asd):
         for i, (a,b) in enumerate(b.items()):
           if i == opt:
             if b == "back" : mainMenu()
+
+# Try to run all queries
+
+            #elif b == "run_all":
+             # for lines in b.items():
+              #  print(lines)
             else : doTheNeedful(b,sweepMode)
       except (ValueError, IndexError):
         pass
@@ -314,4 +345,3 @@ else:
 # Lolbins
 #   -runman.exe
 #     execute stuff wihout touching the disk
-
