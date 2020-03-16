@@ -21,6 +21,7 @@ from menuhelpers import *
 import argparse
 import sys
 import os
+import concurrent.futures
 
 header = "\
     ____             __                            __  _   _ _  _ \n\
@@ -68,17 +69,17 @@ colors = {
         'pink': '\033[95m',
         'green': '\033[92m',
         }
- 
+
 def colorize(string, color):
     if not color in colors: return string
     return colors[color] + string + '\033[0m'
 
 def printBanner():
   print(colorize(header,'pink'))
-  print(colorize('v0.0.2 by sanre','green'))
+  print(colorize('v0.0.3 by sanre','green'))
   print("Start time:" + str(starttime))
   print("End time:" + str(endtime))
-  
+
 def clearPrompt():
    print("\x1B[2J")
 
@@ -93,64 +94,80 @@ opt = ''
 asd = None
 sweepMode = False
 
-# If script is launched with -a switch (sweep mode), all instances are queried 
+# If script is launched with -a switch (sweep mode), all instances are queried
 # Example, sweep with an IOC wordlist:
 # python3 cbr-search.py instance-2 -st 4320 -a -m domain -w ../IOC/dealply.txt
 #
 # Note that the instance argument is always required even if using -a switch.. i'm too lazy on that :)
 if args.a is True:
-  sweepMode ^= True 
+  sweepMode ^= True
 
 def visitor(proc, depth):
-    try:
-        start_time = proc.start or "<unknown>"
-        end_time = proc.end or "<unknown>"
+  try:
+      start_time = proc.start or "<unknown>"
+      end_time = proc.end or "<unknown>"
+      entries = ""
+      entries += "\033[1;30;40m\033[32m{0}\033{1}: {2} {3}\033[m".format('  -> '*(depth + 1), start_time, proc.cmdline, "(suppressed)" if proc.suppressed_process else "")
 
-        print("\033[1;30;40m\033[32m{0}\033{1}: {2} {3}\033[m".format('  -> '*(depth + 1), start_time, proc.cmdline,
-                                     "(suppressed)" if proc.suppressed_process else ""))
-    except Exception as e:
-        print("** Encountered error while walking children: {0:s}".format(str(e)))
+  except Exception as e:
+      print("** Encountered error while walking children: {0:s}".format(str(e)))
+  finally:
+    print(entries)
 
 def doTheNeedful(q, sweepMode):
   if sweepMode == True:
-    #load instances
+    # Load instances
     instances = readInstances()
-    #print("instances: "+instances)
-    for jee in instances:
-      print(jee)
-      cb = CbResponseAPI(profile=jee.strip())
-      query = cb.select(Process).where('hostname:' + args.hostname +' AND '+q+' AND start:['+ starttime +  ' TO ' + endtime + ']').sort("start asc").max_children(args.c)
-      for proc in query:
-        print("{0} {1} {2}\n\033[1;30;40m{3}\033[m".format(proc.start, proc.hostname, proc.cmdline, proc.webui_link))
-        # Show netconns switch
-        if args.n is True:
-          # Iterate the CB netconns object
-          for conns in proc.netconns:
-            print("\033[32m{0}\033[m".format(conns))
-        # Show child processes switch
-        elif int(args.c) > 0:
-          # Iterate the child processes
-          proc.walk_children(visitor)
- 
+    args = ((q, instance) for instance in instances)
+    # Multithread through customers, gotta go fast
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+      for result in executor.map(lambda p: tempAll(*p), args):
+        if q != "MAGIC":
+          pass
+        else:
+          print(result)
+
+  # Single instance, not threaded
   else:
-    cb = CbResponseAPI(profile=args.instance)
+    tempSingle(q)
+
+  input(colorize('Press enter to continue.', 'blue'))
+  clearPrompt()
+  mainMenu()
+
+def tempSingle(q):
+  cb = CbResponseAPI(profile=args.instance)
+  query = cb.select(Process).where('hostname:' + args.hostname +' AND '+q+' AND start:['+ starttime +  ' TO ' + endtime + ']').sort("start asc").max_children(args.c)
+  for proc in query:
+    print("{0} {1} {2}\n\033[1;30;40m{3}\033[m".format(proc.start, proc.hostname, proc.cmdline, proc.webui_link))
+    # Show netconns switch
+    if args.n is True:
+      # Iterate the CB netconns object
+      for conns in proc.netconns:
+        print("\033[32m{0}\033[m".format(conns))
+      continue
+    # Show child processes switch
+    elif int(args.c) > 0:
+      # Iterate the child processes
+      proc.walk_children(visitor)
+
+def tempAll(q,instance):
+
+    print(instance.strip())
+    #print(q)
+    cb = CbResponseAPI(profile=instance.strip())
     query = cb.select(Process).where('hostname:' + args.hostname +' AND '+q+' AND start:['+ starttime +  ' TO ' + endtime + ']').sort("start asc").max_children(args.c)
     for proc in query:
-      print("{0} {1} {2}\n\033[1;30;40m{3}\033[m".format(proc.start, proc.hostname, proc.cmdline, proc.webui_link))
+      print("{0} {1} {2} {3} \n\033[1;30;40m{4}\033[m".format(proc.start, instance.strip(), proc.hostname, proc.cmdline, proc.webui_link))
       # Show netconns switch
       if args.n is True:
         # Iterate the CB netconns object
         for conns in proc.netconns:
           print("\033[32m{0}\033[m".format(conns))
-        continue
       # Show child processes switch
       elif int(args.c) > 0:
         # Iterate the child processes
         proc.walk_children(visitor)
- 
-  input(colorize('Press enter to continue.', 'blue'))
-  clearPrompt()
-  mainMenu()
 
 def readInstances():
   wl = open("instances.txt","r")
@@ -184,6 +201,7 @@ def mainMenu(sweepMode=sweepMode):
           if b == "menu_general"        : initMenu(menu_general, sweepMode)
           elif b == "menu_persistence"  : initMenu(menu_persistence, sweepMode)
           elif b == "menu_creds"        : initMenu(menu_creds, sweepMode)
+          elif b == "menu_lateral"      : initMenu(menu_lateral, sweepMode)
           elif b == "menu_powershell"   : initMenu(menu_powershell, sweepMode)
           elif b == "menu_emotet"       : initMenu(menu_emotet, sweepMode)
           elif b == "menu_lolbins"      : initMenu(menu_lolbins, sweepMode)
@@ -217,7 +235,11 @@ def initMenu(b, sweepMode, asd=asd):
             #elif b == "run_all":
              # for lines in b.items():
               #  print(lines)
-            else : doTheNeedful(b,sweepMode)
+            else:
+              # with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+              doTheNeedful(b,sweepMode)
+
+
       except (ValueError, IndexError):
         pass
 
@@ -290,7 +312,7 @@ elif args.show == "searchterms":
   filewrite_md5       md5
   group               keyword
   has_emet_config     bool
-  has_emet_event      bool 
+  has_emet_event      bool
   host_type           keyword
   hostname            keyword
   internal_name       text
@@ -327,7 +349,7 @@ elif args.show == "searchterms":
   tampered            bool
   username            keyword
   watchlist_<id>      datetime
-  ''') 
+  ''')
 
 else:
   freeSearch(sweepMode)
