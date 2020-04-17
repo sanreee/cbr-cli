@@ -180,6 +180,7 @@ menu_lolbins = OrderedDict([
 
     ('wsreset - regmod:"HKCU\Software\Classes\AppX82a6gwre4fdg3bt635tn5ctqjf8msdd2\Shell\open\command"',
         'regmod:Software\Classes\AppX82a6gwre4fdg3bt635tn5ctqjf8msdd2\Shell\open\command*'),
+    
     ('msbuild.exe AWL bypass - https://lolbas-project.github.io/lolbas/Binaries/Msbuild/, may return some false positives',
         'process_name:msbuild.exe AND cmdline:.xml')
 ])
