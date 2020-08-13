@@ -48,31 +48,34 @@ instance-2
 # Usage
 ```
 usage: cbr-search.py [-h] [-ho HOSTNAME] [-st TMPSTARTTIME] [-et TMPENDTIME]
-                     [-n] [-i] [-a] [-m M] [-w W] [--show SHOW]
+                     [-n] [-i] [-a] [-c C] [-A] [-m M] [-w W] [--show SHOW]
                      instance
 
 positional arguments:
-  instance          instance name
+  instance          Instance name
 
 optional arguments:
   -h, --help        show this help message and exit
-  -ho HOSTNAME      hostname to search
-  -st TMPSTARTTIME  starttime
-  -et TMPENDTIME    endtime
-  -n                list process netconns
-  -i                interactive mode
-  -a                sweep mode
-  -m M              without the switch you enter CBR cli
-                    supported modes:
-                          ps      = search powershell processes
-                          domain  = manually enter domains or with --wordlist
-                          ip      = manually enter ips or with --wordlist
-
-  -w W              load an IOC wordlist (domain and ip modes)
+  -ho HOSTNAME      Hostname to search
+  -st TMPSTARTTIME  Start time
+  -et TMPENDTIME    End time
+  -n                List process netconns
+  -i                Interactive mode
+  -a                Sweep mode. When declared, it goes through all instances
+                    in instances.txt
+  -c C              List child processes, default n=1
+  -A                List alerts :: e.g. type report_score:[90 TO *] when
+                    prompted. Currently works only without -a (all instances
+                    mode)!
+  -m M              Choose between following modes:
+                          domain  = Manually enter domains or with -W (wordlist)
+                          ip      = Manually enter IPs or with -W (wordlist)
+                          
+  -w W              Load an IOC wordlist (domain and ip modes)
                     NOTE: one entry per line
-  --show SHOW
-                    supported values:
-                          searchterms = show available search terms for free search
+  --show SHOW       
+                    Supported values:
+                          searchterms = Show available search terms for free search
 ```
 
 
@@ -91,31 +94,45 @@ optional arguments:
     
     python3 cbr-search.py instance-2 -st 4320 -a
 
+**List alerts on a host**
+
+-A switch is recommended to use with the -ho parameter due to amount of hits, if the whole instance is queried. The -A switch can be used like following: 
+    
+    python3 cbr-search.py instance-1 -st 10000 -ho hostname -A
+
+And next at the prompt, you can define the report score to search for hits. e.g.: 
+    
+    report_score:[75 TO *]
+
 **Interactive mode, note that you can use -a switch to sweep all instances, otherwise it will reset back to False after a search if manually switched to 'All instances mode' in interactive mode.** 
     
     python3 cbr-search.py instance-2 -st 20000 -i -a
 
 ```
-    ____             __                            __  _   _ _  _
+    ____             __                            __  _   _ _  _ 
    / __ \__  _______/ /___  ____  __   _   _____  / /_(_)_(_|_)(_)
-  / /_/ / / / / ___/ __/ / / / / / /  | | / / _ \/ __/ __ `/ _ |
- / ____/ /_/ (__  ) /_/ /_/ / /_/ /   | |/ /  __/ /_/ /_/ / __ |
-/_/    \__, /____/\__/\__, /\__, /    |___/\___/\__/\__,_/_/ |_|
-      /____/         /____//____/
+  / /_/ / / / / ___/ __/ / / / / / /  | | / / _ \/ __/ __ `/ _ |  
+ / ____/ /_/ (__  ) /_/ /_/ / /_/ /   | |/ /  __/ /_/ /_/ / __ |  
+/_/    \__, /____/\__/\__, /\__, /    |___/\___/\__/\__,_/_/ |_|  
+      /____/         /____//____/                                 
 
-v0.0.2 by sanre
+v1.0.1 by sanre
 Start time:2020-02-01T22:49:29
 End time:2020-02-15T20:09:29
 All instances mode: True
 [0] General
-[1] Persistence
-[2] Credential Access
-[3] Powershell
-[4] Emotet
-[5] LOLBINS
-[6] Free search
-[7] Toggle sweep mode (all instances or only the current)
-CBR>
+[1] Discovery
+[2] Execution
+[3] Persistence
+[4] Credential Access
+[5] Lateral Movement
+[6] Defense evasion
+[7] Powershell
+[8] Emotet
+[9] LOLBINS
+[10] Free search
+[11] Toggle sweep mode (all instances or only the current)
+CBR> 
 ```
 
 **NOTE for lazy people like myself:**
