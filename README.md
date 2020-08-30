@@ -48,7 +48,8 @@ instance-2
 # Usage
 ```
 usage: cbr-search.py [-h] [-ho HOSTNAME] [-st TMPSTARTTIME] [-et TMPENDTIME]
-                     [-n] [-i] [-a] [-c C] [-A] [-m M] [-w W] [--show SHOW]
+                     [-n] [-i] [-a] [-c C] [-A] [--csv] [--hits] [-m M] [-w W]
+                     [--show SHOW]
                      instance
 
 positional arguments:
@@ -67,6 +68,8 @@ optional arguments:
   -A                List alerts :: e.g. type report_score:[90 TO *] when
                     prompted. Currently works only without -a (all instances
                     mode)!
+  --csv             Output to CSV
+  --hits            Only count hits for query
   -m M              Choose between following modes:
                           domain  = Manually enter domains or with -W (wordlist)
                           ip      = Manually enter IPs or with -W (wordlist)
