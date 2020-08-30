@@ -17,11 +17,13 @@ Interactive mode, note that you can specify -a switch to sweep all instances, ot
 '''
 from cbapi.response import CbResponseAPI, Process, Binary, Sensor, Alert
 from datetime import datetime, timedelta
+from time import sleep
 from menuhelpers import *
 import argparse
 import sys
 import os
 import concurrent.futures
+import csv 
 
 header = "\
     ____             __                            __  _   _ _  _ \n\
@@ -53,6 +55,8 @@ parser.add_argument("-i", help="Interactive mode", action='store_true')
 parser.add_argument("-a", help="Sweep mode. When declared, it goes through all instances in instances.txt", action='store_true')
 parser.add_argument("-c", help="List child processes, default n=1", default=0)
 parser.add_argument("-A", help="List alerts :: e.g. type report_score:[90 TO *] when prompted. Currently works only without -a (all instances mode)!", action='store_true')
+parser.add_argument("--csv", help="Output to CSV", action='store_true')
+parser.add_argument("--hits", help="Only count hits for query", action='store_true')
 parser.add_argument("-m", help='''R|Choose between following modes:
       domain  = Manually enter domains or with -W (wordlist)
       ip      = Manually enter IPs or with -W (wordlist)
@@ -90,20 +94,22 @@ print("Start time:" + str(starttime))
 endtime = datetime.utcnow()-timedelta(minutes=int(args.tmpendtime))
 endtime = endtime.strftime("%Y-%m-%dT%H:%M:%S")
 opt = ''
-asd = None
+temp = None
+
+# Boolean switches
 sweepMode = False
 alert_bool = False
+csv_bool = False
+hits_bool = False
 
-# If script is launched with -a switch (sweep mode), all instances are queried
-# Example, sweep with an IOC wordlist:
-# python3 cbr-search.py instance-2 -st 4320 -a -m domain -w ../IOC/dealply.txt
-#
-# Note that the instance argument is always required even if using -a switch.. i'm too lazy on that :)
 if args.a is True:
   sweepMode ^= True
-
 if args.A is True:
   alert_bool ^= True
+if args.csv is True:
+  csv_bool ^= True
+if args.hits is True:
+  hits_bool ^= True
 
 def listAlerts(q):
   cb = CbResponseAPI(profile=args.instance)
@@ -127,64 +133,115 @@ def visitor(proc, depth):
   finally:
     print(entries)
 
-def doTheNeedful(q, sweepMode, alert_bool):
+def doTheNeedful(q, sweepMode, alert_bool, hits_bool):
   if sweepMode == True:
     # Load instances
     instances = readInstances()
-    args = ((q, instance) for instance in instances)
-    # Multithread through customers, gotta go fast
+    args = ((q, instance, hits_bool) for instance in instances)
+    # Multithread through instances, gotta go fast
     with concurrent.futures.ThreadPoolExecutor(max_workers=25) as executor:
       for result in executor.map(lambda p: tempAll(*p), args):
         if q != "MAGIC":
           pass
         else:
           print(result)
-
   elif alert_bool is True:
     listAlerts(q)
-
   # Single instance, not threaded
   else:
-    tempSingle(q)
+    tempSingle(q, hits_bool)
   
   input(colorize('Press enter to continue.', 'blue'))
   clearPrompt()
   mainMenu()
 
-def tempSingle(q):
-  cb = CbResponseAPI(profile=args.instance)
+def outputCSV(instance, tempCSV):
+  try:
+    headers = [ 'proc.start', 'proc.hostname', 'proc.username', 'proc.cmdline', 'proc.webui_link' ]
+    with open('./output/{0}-results.csv'.format(instance), 'w') as csvfile:
+      writer = csv.DictWriter(csvfile, fieldnames=headers)
+      writer.writeheader()
+      for row in tempCSV:
+        writer.writerow(row)
+  except IOError as e:
+    print(e)
+
+def tempSingle(q,hits_bool):
+  instance = args.instance
+  tempCSV = []
+  cb = CbResponseAPI(profile=instance)
   query = cb.select(Process).where('hostname:' + args.hostname +' AND ('+q+') AND start:['+ starttime +  ' TO ' + endtime + ']').sort("start asc").max_children(args.c)
-  for proc in query:
-    print("{0} {1} {2} {3}\n\033[1;30;40m{4}\033[m".format(proc.start, proc.hostname, proc.username, proc.cmdline, proc.webui_link))
-    # Show netconns switch
-    if args.n is True:
-      # Iterate the CB netconns object
-      for conns in proc.netconns:
-        print("\033[32m{0}\033[m".format(conns))
-      continue
-    # Show child processes switch
-    elif int(args.c) > 0:
-      # Iterate the child processes
-      proc.walk_children(visitor)
+  try:
+    print(colorize(instance+" - Total hits: "+str(len(query)), 'green'))
+  except OSError as e:
+    print(e)
+  finally:
+    if hits_bool == True:
+      sys.exit()
+    else:
+      sleep(3)
+      for proc in query:
+        print("{0} {1} {2} {3}\n\033[1;30;40m{4}\033[m".format(proc.start, proc.hostname, proc.username, proc.cmdline, proc.webui_link))
+        # Show netconns switch
+        if args.n is True:
+          # Iterate the CB netconns object
+          for conns in proc.netconns:
+            print("\033[32m{0}\033[m".format(conns))
+          continue
+        # Show child processes switch
+        elif int(args.c) > 0:
+          # Iterate the child processes
+          proc.walk_children(visitor)
+        elif args.csv is True:
+          tempCSV.append({
+            'proc.start': proc.start, 
+            'proc.hostname': proc.hostname, 
+            'proc.username': proc.username, 
+            'proc.cmdline': proc.cmdline, 
+            'proc.webui_link': proc.webui_link
+          })
+      if tempCSV != []:
+        outputCSV(instance,tempCSV)
 
-def tempAll(q,instance):
-
-    print(instance.strip())
-    #print(q)
-    cb = CbResponseAPI(profile=instance.strip())
-    query = cb.select(Process).where('hostname:' + args.hostname +' AND ('+q+') AND start:['+ starttime +  ' TO ' + endtime + ']').sort("start asc").max_children(args.c)
-    for proc in query:
-      print("{0} {1} {2} {3} {4} \n\033[1;30;40m{5}\033[m".format(proc.start, instance.strip(), proc.hostname, proc.username, proc.cmdline, proc.webui_link))
-      # Show netconns switch
-      if args.n is True:
-        # Iterate the CB netconns object
-        for conns in proc.netconns:
-          print("\033[32m{0}\033[m".format(conns))
-      # Show child processes switch
-      elif int(args.c) > 0:
-        # Iterate the child processes
-        proc.walk_children(visitor)
-
+def tempAll(q, instance, hits_bool):
+  instance = instance.strip()
+  tempCSV = []
+  # Debug prints
+  #print(instance)
+  #print(q)
+  cb = CbResponseAPI(profile=instance)
+  query = cb.select(Process).where('hostname:' + args.hostname +' AND ('+q+') AND start:['+ starttime +  ' TO ' + endtime + ']').sort("start asc").max_children(args.c)
+  try:
+    print(colorize(instance+" - Total hits: "+str(len(query)), 'green'))
+  except OSError as e:
+    print(e)
+  finally:
+    if hits_bool == True:
+      sys.exit()
+    else:
+      sleep(3)
+      for proc in query:
+        print("{0} {1} {2} {3} {4} \n\033[1;30;40m{5}\033[m".format(proc.start, instance, proc.hostname, proc.username, proc.cmdline, proc.webui_link))
+        # Show netconns switch
+        if args.n is True:
+          # Iterate the CB netconns object
+          for conns in proc.netconns:
+            print("\033[32m{0}\033[m".format(conns))
+        # Show child processes switch
+        elif int(args.c) > 0:
+          # Iterate the child processes
+          proc.walk_children(visitor)
+        elif args.csv is True:
+          tempCSV.append({
+            'proc.start': proc.start, 
+            'proc.hostname': proc.hostname, 
+            'proc.username': proc.username, 
+            'proc.cmdline': proc.cmdline, 
+            'proc.webui_link': proc.webui_link
+          })
+      if tempCSV != []:
+        outputCSV(instance,tempCSV)
+    
 def readInstances():
   wl = open("instances.txt","r")
   content = wl.readlines()
@@ -230,18 +287,17 @@ def mainMenu(sweepMode=sweepMode):
       pass
 
 # MENU HANDLER
-def initMenu(b, sweepMode, asd=asd):
+def initMenu(b, sweepMode, temp=temp):
   while True:
-    if (asd is None):
-      asd = b
+    if (temp is None):
+      temp = b
     elif type(b) == dict: mainMenu()
     else:
-      asd = asd
       clearPrompt()
       printBanner()
       print(colorize('All instances mode: '+str(sweepMode),'blue'))
-      for item in asd:
-        print("\033[32m[{0}]\033[m {1}".format(list(asd.keys()).index(item),item))
+      for item in temp:
+        print("\033[32m[{0}]\033[m {1}".format(list(temp.keys()).index(item),item))
       try:
         opt = int(input("CBR> "))
         if int(opt) < 0 : raise ValueError
@@ -252,7 +308,7 @@ def initMenu(b, sweepMode, asd=asd):
 # Maybe develop a way to run queries by selecting them or all by once.
             
             else:
-              doTheNeedful(b,sweepMode,alert_bool)
+              doTheNeedful(b,sweepMode,alert_bool,hits_bool)
 
 
       except (ValueError, IndexError):
@@ -264,7 +320,7 @@ def freeSearch(sweepMode):
   print(colorize('All instances mode: '+str(sweepMode),'blue'))
   freesearch = input("CBR> ")
   q = freesearch
-  doTheNeedful(q,sweepMode,alert_bool)
+  doTheNeedful(q,sweepMode,alert_bool,hits_bool)
 
 # Mode (domain) switch
 if args.m == "domain":
@@ -272,11 +328,11 @@ if args.m == "domain":
   if args.w is not None:
     domains = readWordlist()
     q = '(domain:'+domains+')'
-    doTheNeedful(q,sweepMode,alert_bool)
+    doTheNeedful(q,sweepMode,alert_bool,hits_bool)
   else:
     domains = input("Domains separated with 'OR': ")
     q = '(domain:'+domains+')'
-    doTheNeedful(q,sweepMode,alert_bool)
+    doTheNeedful(q,sweepMode,alert_bool,hits_bool)
 
 # Mode (IP) switch
 elif args.m == "ip":
@@ -284,7 +340,7 @@ elif args.m == "ip":
   if args.w is not None:
     ips = readWordlist()
     q = '(ipaddr:'+ips+')'
-    doTheNeedful(q,sweepMode,alert_bool)
+    doTheNeedful(q,sweepMode,alert_bool,hits_bool)
   else:
     ips = input("IPs separated with 'OR': ")
     q = '(ipaddr:'+ips+')'
